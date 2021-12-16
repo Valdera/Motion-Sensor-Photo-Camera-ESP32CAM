@@ -2,6 +2,7 @@
 ## 1. Setup Client Web
 Install requirement tools
 - [Node.js](https://nodejs.org/en/)
+
 Run this command on terminal
 ```
 cd client
@@ -13,6 +14,8 @@ npm run start
 Install requirement tools
 - [Python](https://www.python.org/)
 - [FastApi](https://fastapi.tiangolo.com/)
+
+Run this command on terminal
 ```
 cd server
 pip install requirements.txt
