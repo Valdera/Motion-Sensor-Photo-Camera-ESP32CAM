@@ -1,31 +1,22 @@
-// ledPin refers to ESP32-CAM GPIO 4 (flashlight)
-const int ledPin = 4;
-const char* ssid = "Sarahf44_plus";
-const char* password = "Valdera!";
-
-String FIREBASE_HOST = "xxxxxxxxxx.firebaseio.com";
-String FIREBASE_AUTH = "xxxxxxxxxxxxxxxxxxxx";
-
 #include "FirebaseESP32.h"
 FirebaseData firebaseData;
+FirebaseJson json;
 
 #include <WiFi.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
 #include "Base64.h"
+#include "driver/rtc_io.h"
 
 #include "esp_camera.h"
+#define FIREBASE_USE_PSRAM
 
-// WARNING!!! Make sure that you have either selected ESP32 Wrover Module,
-//            or another board which has PSRAM enabled
-
-//CAMERA_MODEL_AI_THINKER
+// Setup Camera Model ESP32 CAM
 #define PWDN_GPIO_NUM     32
 #define RESET_GPIO_NUM    -1
 #define XCLK_GPIO_NUM      0
 #define SIOD_GPIO_NUM     26
 #define SIOC_GPIO_NUM     27
-
 #define Y9_GPIO_NUM       35
 #define Y8_GPIO_NUM       34
 #define Y7_GPIO_NUM       39
@@ -38,7 +29,21 @@ FirebaseData firebaseData;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
+// LED_PIN refers to ESP32-CAM GPIO 4 (flashlight)
+const int LED_PIN = 4;
+
+// Wifi SSID and Password Configuration
+const char* ssid = "Sarahf44_plus";
+const char* password = "Valdera!";
+
+// Firebase Database Auth Configuration
+String FIREBASE_HOST = "https://motiondetectorphotocamera-default-rtdb.asia-southeast1.firebasedatabase.app/";
+String FIREBASE_AUTH = "VHVd5MSi08OJxateBu4NXADUXtbjgvZW5C7bUSTR";
+
+
 void setup() { 
+  digitalWrite(LED_PIN, HIGH);
+
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
     
   Serial.begin(115200);
@@ -46,29 +51,18 @@ void setup() {
   Serial.println();
   Serial.println("ssid: " + (String)ssid);
   Serial.println("password: " + (String)password);
-  
-  WiFi.begin(ssid, password);
 
-  long int StartTime=millis();
+  pinMode(LED_PIN, OUTPUT);
+  
+  // Initialize Wifi Connection
+  WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
       delay(500);
-      if ((StartTime+10000) < millis()) break;
+      Serial.println("Connecting to WiFi..");
   } 
+  Serial.println("Connected to the WiFi network");
 
-  if (WiFi.status() == WL_CONNECTED) {
-    char* apssid = "ESP32-CAM";
-    char* appassword = "12345678";         //AP password require at least 8 characters.
-    Serial.println(""); 
-    Serial.print("Camera Ready! Use 'http://");
-    Serial.print(WiFi.localIP());
-    Serial.println("' to connect");
-    WiFi.softAP((WiFi.localIP().toString()+"_"+(String)apssid).c_str(), appassword);            
-  }
-  else {
-    Serial.println("Connection failed");
-    return;
-  } 
-
+  // Setup Camera Configuration
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -90,18 +84,19 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  //init with high specs to pre-allocate larger buffers
+
+  // Init with high specs to pre-allocate larger buffers
   if(psramFound()){
     config.frame_size = FRAMESIZE_UXGA;
-    config.jpeg_quality = 10;  //0-63 lower number means higher quality
+    config.jpeg_quality = 1;  //0-63 lower number means higher quality
     config.fb_count = 2;
   } else {
     config.frame_size = FRAMESIZE_SVGA;
-    config.jpeg_quality = 12;  //0-63 lower number means higher quality
+    config.jpeg_quality = 1;  //0-63 lower number means higher quality
     config.fb_count = 1;
   }
   
-  // camera init
+  // Initialize Camera with existing configuration
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
@@ -109,29 +104,55 @@ void setup() {
     ESP.restart();
   }
 
-  //drop down frame size for higher initial frame rate
+
+  // Drop down frame size for higher initial frame rate
   sensor_t * s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_QQVGA);  // VGA|CIF|QVGA|HQVGA|QQVGA   ( UXGA? SXGA? XGA? SVGA? )
- 
+//  s->set_contrast(s, 2);    //min=-2, max=2
+//  s->set_brightness(s, 2);  //min=-2, max=2
+//  s->set_saturation(s, 2);  //min=-2, max=2
+
+    // Initialize Firebase connection
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
   Firebase.reconnectWiFi(true);
   Firebase.setMaxRetry(firebaseData, 3);
   Firebase.setMaxErrorQueue(firebaseData, 30); 
   Firebase.enableClassicRequest(firebaseData, true);
 
-  String jsonData = "{\"photo\":\"" + Photo2Base64() + "\"}";
+  digitalWrite(LED_PIN, LOW);
+
+  captureAndSendPhoto();
+  
+  rtc_gpio_hold_en(GPIO_NUM_4);
+
+  esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
+ 
+  Serial.println("Going to sleep now");
+  delay(1000);
+  esp_deep_sleep_start();
+
+} 
+
+void captureAndSendPhoto(){
+  digitalWrite(LED_PIN, HIGH);
+
   String photoPath = "/esp32-cam";
-  if (Firebase.pushJSON(firebaseData, photoPath, jsonData)) {
-    Serial.println(firebaseData.dataPath());
-    Serial.println(firebaseData.pushName());
-    Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
+  String jsonData = "{\"photo\":\"" + Photo2Base64() + "\"}";
+
+  json.set("photo", Photo2Base64());
+
+  if (Firebase.pushJSON(firebaseData, photoPath, json)) {
+    Serial.println("Added to: " + firebaseData.dataPath() + "/"+ firebaseData.pushName());
   } else {
+    Serial.println("Error sending data");
+
     Serial.println(firebaseData.errorReason());
   }
-} 
+   
+  digitalWrite(LED_PIN, LOW);
+}
  
 void loop() { 
-  delay(10000);
 }
 
 String Photo2Base64() {
@@ -155,7 +176,6 @@ String Photo2Base64() {
     return imageFile;
 }
 
-//https://github.com/zenmanenergy/ESP8266-Arduino-Examples/
 String urlencode(String str)
 {
     String encodedString="";
