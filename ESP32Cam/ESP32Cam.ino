@@ -31,6 +31,7 @@ FirebaseJson json;
 
 // LED_PIN refers to ESP32-CAM GPIO 4 (flashlight)
 const int LED_PIN = 4;
+const int WIFI_LED_PIN = GPIO_NUM_2;
 
 // Wifi SSID and Password Configuration
 const char* ssid = "Sarahf44_plus";
@@ -42,8 +43,6 @@ String FIREBASE_AUTH = "VHVd5MSi08OJxateBu4NXADUXtbjgvZW5C7bUSTR";
 
 
 void setup() { 
-  digitalWrite(LED_PIN, HIGH);
-
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
     
   Serial.begin(115200);
@@ -53,7 +52,9 @@ void setup() {
   Serial.println("password: " + (String)password);
 
   pinMode(LED_PIN, OUTPUT);
-  
+  pinMode(WIFI_LED_PIN, OUTPUT);
+  pinMode(GPIO_NUM_13, INPUT);
+
   // Initialize Wifi Connection
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
@@ -104,13 +105,12 @@ void setup() {
     ESP.restart();
   }
 
-
   // Drop down frame size for higher initial frame rate
   sensor_t * s = esp_camera_sensor_get();
   s->set_framesize(s, FRAMESIZE_QQVGA);  // VGA|CIF|QVGA|HQVGA|QQVGA   ( UXGA? SXGA? XGA? SVGA? )
-//  s->set_contrast(s, 2);    //min=-2, max=2
-//  s->set_brightness(s, 2);  //min=-2, max=2
-//  s->set_saturation(s, 2);  //min=-2, max=2
+  s->set_contrast(s, 2);    //min=-2, max=2
+  s->set_brightness(s, 2);  //min=-2, max=2
+  s->set_saturation(s, 2);  //min=-2, max=2
 
     // Initialize Firebase connection
   Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
@@ -118,17 +118,13 @@ void setup() {
   Firebase.setMaxRetry(firebaseData, 3);
   Firebase.setMaxErrorQueue(firebaseData, 30); 
   Firebase.enableClassicRequest(firebaseData, true);
-
-  digitalWrite(LED_PIN, LOW);
+  digitalWrite(WIFI_LED_PIN, HIGH);
 
   captureAndSendPhoto();
   
-  rtc_gpio_hold_en(GPIO_NUM_4);
-
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
  
   Serial.println("Going to sleep now");
-  delay(1000);
   esp_deep_sleep_start();
 
 } 
@@ -153,6 +149,7 @@ void captureAndSendPhoto(){
 }
  
 void loop() { 
+
 }
 
 String Photo2Base64() {
