@@ -1,31 +1,20 @@
-# Motion-Sensor-Photo-Camera-ESP32CAM
-## 1. Setup Client Web
-Install requirement tools
-- [Node.js](https://nodejs.org/en/)
-
-Run this command on terminal
-```
-cd client
-npm install
-npm run start
-```
-
-## 2. Setup Web Server
-Install requirement tools
-- [Python](https://www.python.org/)
-- [FastApi](https://fastapi.tiangolo.com/)
-
-Run this command on terminal
-```
-cd server
-pip install requirements.txt
-``` 
-
-## 3. Setup ESP32 CAM
+# Motion-Sensor-Photo-Camera-ESP32CAM0
+## Setup ESP32 CAM
 Install requirement tools
 - [Arduino](https://www.arduino.cc/)
+- [Telegram](https://web.telegram.org/)
 
 Install library
-- [Firebase ESP32 Client by Mobizt version 3.2.1](https://github.com/mobizt/Firebase-ESP32)
+- [Universal Telegram Bot Library](https://github.com/witnessmenow/Universal-Arduino-Telegram-Bot)
+- [Arduino JSON](https://arduinojson.org/)
 - [ESP32CAM AI Thinker](https://randomnerdtutorials.com/installing-the-esp32-board-in-arduino-ide-windows-instructions/)
-Upload your code to ESP32CAM 
+
+Open arduino file in esp32cam folder
+
+Upload your code to ESP32CAM by selecting AI Thinker ESP32CAM as Board Manager
+
+## Circuit schematic
+ 
+
+
+
