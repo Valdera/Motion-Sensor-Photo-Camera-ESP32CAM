@@ -1,15 +1,11 @@
-#include "FirebaseESP32.h"
-FirebaseData firebaseData;
-FirebaseJson json;
-
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include "soc/soc.h"
 #include "soc/rtc_cntl_reg.h"
-#include "Base64.h"
 #include "driver/rtc_io.h"
-
+#include <ArduinoJson.h>
+#include <UniversalTelegramBot.h>
 #include "esp_camera.h"
-#define FIREBASE_USE_PSRAM
 
 // Setup Camera Model ESP32 CAM
 #define PWDN_GPIO_NUM     32
@@ -29,18 +25,22 @@ FirebaseJson json;
 #define HREF_GPIO_NUM     23
 #define PCLK_GPIO_NUM     22
 
-// LED_PIN refers to ESP32-CAM GPIO 4 (flashlight)
-const int LED_PIN = 4;
-const int WIFI_LED_PIN = GPIO_NUM_2;
+#define FLASH_LED_PIN 4
 
 // Wifi SSID and Password Configuration
 const char* ssid = "Sarahf44_plus";
 const char* password = "Valdera!";
 
-// Firebase Database Auth Configuration
-String FIREBASE_HOST = "https://motiondetectorphotocamera-default-rtdb.asia-southeast1.firebasedatabase.app/";
-String FIREBASE_AUTH = "VHVd5MSi08OJxateBu4NXADUXtbjgvZW5C7bUSTR";
+// Initialize Telegram BOT
+String BOTtoken = "5062037743:AAG9yqUiS8PzS17id_RSp_fJWLAWFc-bNnk";  // your Bot Token (Get from Botfather)
 
+// Use @myidbot to find out the chat ID of an individual or a group
+// Also note that you need to click "start" on a bot before it can
+// message you
+String CHAT_ID = "1537637497";
+
+WiFiClientSecure clientTCP;
+UniversalTelegramBot bot(BOTtoken, clientTCP);
 
 void setup() { 
   WRITE_PERI_REG(RTC_CNTL_BROWN_OUT_REG, 0);
@@ -51,11 +51,11 @@ void setup() {
   Serial.println("ssid: " + (String)ssid);
   Serial.println("password: " + (String)password);
 
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(WIFI_LED_PIN, OUTPUT);
+  pinMode(FLASH_LED_PIN, OUTPUT);
   pinMode(GPIO_NUM_13, INPUT);
 
   // Initialize Wifi Connection
+  WiFi.mode(WIFI_STA);
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
       delay(500);
@@ -107,102 +107,111 @@ void setup() {
 
   // Drop down frame size for higher initial frame rate
   sensor_t * s = esp_camera_sensor_get();
-  s->set_framesize(s, FRAMESIZE_QQVGA);  // VGA|CIF|QVGA|HQVGA|QQVGA   ( UXGA? SXGA? XGA? SVGA? )
-  s->set_contrast(s, 2);    //min=-2, max=2
-  s->set_brightness(s, 2);  //min=-2, max=2
-  s->set_saturation(s, 2);  //min=-2, max=2
+  s->set_framesize(s, FRAMESIZE_CIF);  // VGA|CIF|QVGA|HQVGA|QQVGA   ( UXGA? SXGA? XGA? SVGA? )
+//  s->set_contrast(s, 2);    //min=-2, max=2
+//  s->set_brightness(s, 2);  //min=-2, max=2
+//  s->set_saturation(s, 2);  //min=-2, max=2
 
-    // Initialize Firebase connection
-  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-  Firebase.reconnectWiFi(true);
-  Firebase.setMaxRetry(firebaseData, 3);
-  Firebase.setMaxErrorQueue(firebaseData, 30); 
-  Firebase.enableClassicRequest(firebaseData, true);
-  digitalWrite(WIFI_LED_PIN, HIGH);
+  clientTCP.setCACert(TELEGRAM_CERTIFICATE_ROOT); 
 
-  captureAndSendPhoto();
+  
+  sendPhotoTelegram();
   
   esp_sleep_enable_ext0_wakeup(GPIO_NUM_13, 1);
  
-  Serial.println("Going to sleep now");
+  Serial.println("Going to sleep now till motion detected");
   esp_deep_sleep_start();
-
 } 
 
-void captureAndSendPhoto(){
-  digitalWrite(LED_PIN, HIGH);
 
-  String photoPath = "/esp32-cam";
-  String jsonData = "{\"photo\":\"" + Photo2Base64() + "\"}";
+String sendPhotoTelegram() {
+  bot.sendMessage(CHAT_ID, "Motion Detected", "");
 
-  json.set("photo", Photo2Base64());
+  const char* myDomain = "api.telegram.org";
+  String getAll = "";
+  String getBody = "";
+  
+  digitalWrite(FLASH_LED_PIN, HIGH);
+  
+  camera_fb_t * fb = NULL;
+  fb = esp_camera_fb_get();  
+  if(!fb) {
+    Serial.println("Camera capture failed");
+    delay(1000);
+    ESP.restart();
+    return "Camera capture failed";
+  }  
+  
+  Serial.println("Connect to " + String(myDomain));
 
-  if (Firebase.pushJSON(firebaseData, photoPath, json)) {
-    Serial.println("Added to: " + firebaseData.dataPath() + "/"+ firebaseData.pushName());
-  } else {
-    Serial.println("Error sending data");
+  
+  if (clientTCP.connect(myDomain, 443)) {
+    Serial.println("Connection successful");
+    
+    String head = "--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"chat_id\"; \r\n\r\n" + CHAT_ID + "\r\n--RandomNerdTutorials\r\nContent-Disposition: form-data; name=\"photo\"; filename=\"esp32-cam.jpg\"\r\nContent-Type: image/jpeg\r\n\r\n";
+    String tail = "\r\n--RandomNerdTutorials--\r\n";
 
-    Serial.println(firebaseData.errorReason());
+    uint16_t imageLen = fb->len;
+    uint16_t extraLen = head.length() + tail.length();
+    uint16_t totalLen = imageLen + extraLen;
+  
+    clientTCP.println("POST /bot"+BOTtoken+"/sendPhoto HTTP/1.1");
+    clientTCP.println("Host: " + String(myDomain));
+    clientTCP.println("Content-Length: " + String(totalLen));
+    clientTCP.println("Content-Type: multipart/form-data; boundary=RandomNerdTutorials");
+    clientTCP.println();
+    clientTCP.print(head);
+  
+    uint8_t *fbBuf = fb->buf;
+    size_t fbLen = fb->len;
+    for (size_t n=0;n<fbLen;n=n+1024) {
+      if (n+1024<fbLen) {
+        clientTCP.write(fbBuf, 1024);
+        fbBuf += 1024;
+      }
+      else if (fbLen%1024>0) {
+        size_t remainder = fbLen%1024;
+        clientTCP.write(fbBuf, remainder);
+      }
+    }  
+    
+    clientTCP.print(tail);
+    
+    esp_camera_fb_return(fb);
+
+    digitalWrite(FLASH_LED_PIN, LOW);
+    
+    int waitTime = 10000;   // timeout 10 seconds
+    long startTimer = millis();
+    boolean state = false;
+    
+    while ((startTimer + waitTime) > millis()){
+      Serial.print(".");
+      delay(100);      
+      while (clientTCP.available()) {
+        char c = clientTCP.read();
+        if (state==true) getBody += String(c);        
+        if (c == '\n') {
+          if (getAll.length()==0) state=true; 
+          getAll = "";
+        } 
+        else if (c != '\r')
+          getAll += String(c);
+        startTimer = millis();
+      }
+      if (getBody.length()>0) break;
+    }
+    clientTCP.stop();
+    Serial.println(getBody);
   }
-   
-  digitalWrite(LED_PIN, LOW);
+  else {
+    getBody="Connected to api.telegram.org failed.";
+    Serial.println("Connected to api.telegram.org failed.");
+  }
+  return getBody;
 }
+
  
 void loop() { 
 
-}
-
-String Photo2Base64() {
-    camera_fb_t * fb = NULL;
-    fb = esp_camera_fb_get();  
-    if(!fb) {
-      Serial.println("Camera capture failed");
-      return "";
-    }
-  
-    String imageFile = "data:image/jpeg;base64,";
-    char *input = (char *)fb->buf;
-    char output[base64_enc_len(3)];
-    for (int i=0;i<fb->len;i++) {
-      base64_encode(output, (input++), 3);
-      if (i%3==0) imageFile += urlencode(String(output));
-    }
-
-    esp_camera_fb_return(fb);
-    
-    return imageFile;
-}
-
-String urlencode(String str)
-{
-    String encodedString="";
-    char c;
-    char code0;
-    char code1;
-    char code2;
-    for (int i =0; i < str.length(); i++){
-      c=str.charAt(i);
-      if (c == ' '){
-        encodedString+= '+';
-      } else if (isalnum(c)){
-        encodedString+=c;
-      } else{
-        code1=(c & 0xf)+'0';
-        if ((c & 0xf) >9){
-            code1=(c & 0xf) - 10 + 'A';
-        }
-        c=(c>>4)&0xf;
-        code0=c+'0';
-        if (c > 9){
-            code0=c - 10 + 'A';
-        }
-        code2='\0';
-        encodedString+='%';
-        encodedString+=code0;
-        encodedString+=code1;
-        //encodedString+=code2;
-      }
-      yield();
-    }
-    return encodedString;
 }
